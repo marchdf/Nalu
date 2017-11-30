@@ -48,8 +48,8 @@ namespace sierra {
 	ScalarFieldType *tkeNp1_{nullptr};
 	ScalarFieldType *sdrNp1_{nullptr};
 	ScalarFieldType *densityNp1_{nullptr};
+	VectorFieldType *velocityNp1_{nullptr};
 	ScalarFieldType *tvisc_{nullptr};
-	GenericFieldType *Gju_{nullptr};
 	VectorFieldType *coordinates_{nullptr};
 
 	double betaStar_{0.0};

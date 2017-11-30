@@ -38,8 +38,9 @@ namespace sierra {
       sdrNp1_ = &sdr->field_of_state(stk::mesh::StateNP1);
       ScalarFieldType *density = metaData.get_field<ScalarFieldType>(stk::topology::NODE_RANK, "density");
       densityNp1_ = &density->field_of_state(stk::mesh::StateNP1);
+      VectorFieldType *velocity = metaData.get_field<VectorFieldType>(stk::topology::NODE_RANK, "velocity");
+      velocityNp1_ = &(velocity->field_of_state(stk::mesh::StateNP1));
       tvisc_ = metaData.get_field<ScalarFieldType>(stk::topology::NODE_RANK, "turbulent_viscosity");
-      Gju_ = metaData.get_field<GenericFieldType>(stk::topology::NODE_RANK, "dudx");
       coordinates_ = metaData.get_field<VectorFieldType>(stk::topology::NODE_RANK, solnOpts.get_coordinates_name());
 
       MasterElement* meSCV = sierra::nalu::MasterElementRepo::get_volume_master_element(AlgTraits::topo_);
@@ -52,9 +53,10 @@ namespace sierra {
       dataPreReqs.add_gathered_nodal_field(*tkeNp1_, 1);
       dataPreReqs.add_gathered_nodal_field(*sdrNp1_, 1);
       dataPreReqs.add_gathered_nodal_field(*densityNp1_, 1);
+      dataPreReqs.add_gathered_nodal_field(*velocityNp1_, AlgTraits::nDim_);
       dataPreReqs.add_gathered_nodal_field(*tvisc_, 1);
-      dataPreReqs.add_gathered_nodal_field(*Gju_, AlgTraits::nDim_, AlgTraits::nDim_);
       dataPreReqs.add_master_element_call(SCV_VOLUME, CURRENT_COORDINATES);
+      dataPreReqs.add_master_element_call(SCV_GRAD_OP, CURRENT_COORDINATES);
     }
 
     template<typename AlgTraits>
@@ -72,32 +74,48 @@ namespace sierra {
       SharedMemView<DoubleType*>& v_tkeNp1 = scratchViews.get_scratch_view_1D(*tkeNp1_);
       SharedMemView<DoubleType*>& v_sdrNp1 = scratchViews.get_scratch_view_1D(*sdrNp1_);
       SharedMemView<DoubleType*>& v_densityNp1 = scratchViews.get_scratch_view_1D(*densityNp1_);
+      SharedMemView<DoubleType**>& v_velocityNp1 = scratchViews.get_scratch_view_2D(*velocityNp1_);
       SharedMemView<DoubleType*>& v_tvisc = scratchViews.get_scratch_view_1D(*tvisc_);
-      SharedMemView<DoubleType***>& v_Gju = scratchViews.get_scratch_view_3D(*Gju_);
+      SharedMemView<DoubleType***>& v_dndx = scratchViews.get_me_views(CURRENT_COORDINATES).dndx_scv;
       SharedMemView<DoubleType*>& v_scv_volume = scratchViews.get_me_views(CURRENT_COORDINATES).scv_volume;
 
       for (int ip=0; ip < AlgTraits::numScvIp_; ++ip) {
+
+	// nearest node to ip
 	const int nearestNode = ipNodeMap_[ip];
 
-	DoubleType Pk = 0.0;
-	for ( int i = 0; i < AlgTraits::nDim_; ++i ) {
-	  for ( int j = 0; j < AlgTraits::nDim_; ++j ) {
-	    Pk += v_Gju(nearestNode,i,j)*(v_Gju(nearestNode,i,j) + v_Gju(nearestNode,j,i));
+	// save off scvol
+	const DoubleType scV = v_scv_volume(ip);
+
+	for (int ic=0; ic < AlgTraits::nodesPerElement_; ++ic) {
+
+	  const DoubleType rhoIC = v_densityNp1(ic);
+	  const DoubleType sdrIC = v_sdrNp1(ic);
+	  const DoubleType tkeIC = v_tkeNp1(ic);
+	  const DoubleType tviscIC = v_tvisc(ic);
+
+	  DoubleType Pk = 0.0;
+	  for ( int i = 0; i < AlgTraits::nDim_; ++i ) {
+	    const DoubleType dni = v_dndx(ip,ic,i);
+	    const DoubleType ui = v_velocityNp1(ic,i);
+	    for ( int j = 0; j < AlgTraits::nDim_; ++j ) {
+	      const DoubleType dnj = v_dndx(ip,ic,j);
+	      Pk += dnj * ui * (dnj*ui + dni * v_velocityNp1(ic,j));
+	   }
 	  }
+	  Pk *= tviscIC;
+
+	  // tke factor
+	  const DoubleType tkeFac = betaStar_*rhoIC*sdrIC;
+
+	  // dissipation and production (limited)
+	  DoubleType Dk = tkeFac * tkeIC;
+	  Pk = stk::math::min(Pk, tkeProdLimitRatio_*Dk);
+	  
+	  // assemble RHS and LHS
+	  rhs(nearestNode) += (Pk - Dk)*scV;
+	  lhs(nearestNode,nearestNode) += tkeFac*scV;
 	}
-	Pk *= v_tvisc(nearestNode);
-
-	// tke factor
-	const DoubleType tkeFac = betaStar_*v_densityNp1(nearestNode)*v_sdrNp1(nearestNode);
-
-	// dissipation and production (limited)
-	DoubleType Dk = tkeFac * v_tkeNp1(nearestNode);
-	Pk = stk::math::min(Pk, tkeProdLimitRatio_*Dk);
-
-       	// lhs assembly, all lumped
-	const DoubleType scvol = v_scv_volume(ip);
-	rhs(nearestNode) += (Pk - Dk)*scvol;
-	lhs(nearestNode,nearestNode) += tkeFac*scvol;
       }
     }
 
