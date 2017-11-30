@@ -342,7 +342,54 @@ public:
   ScalarFieldType* temperature_{nullptr};
 };
 
-/** Text fixture for heat conduction equation kernels
+/** Test Fixture for Turbulence Kernels
+ *
+ */
+class TurbKineticEnergySSTKernelHex8Mesh : public LowMachKernelHex8Mesh
+{
+ public:
+ TurbKineticEnergySSTKernelHex8Mesh()
+   : LowMachKernelHex8Mesh(),
+    tke_(
+	 &meta_.declare_field<ScalarFieldType>(
+					       stk::topology::NODE_RANK, "turbulent_ke")),
+    sdr_(
+	 &meta_.declare_field<ScalarFieldType>(
+					       stk::topology::NODE_RANK, "specific_dissipation_rate")),
+    tvisc_(
+	   &meta_.declare_field<ScalarFieldType>(
+						 stk::topology::NODE_RANK, "turbulent_viscosity")),
+    dudx_(
+	  &meta_.declare_field<GenericFieldType>(
+						 stk::topology::NODE_RANK, "dudx"))
+      {
+	stk::mesh::put_field(*tke_, meta_.universal_part(), 1);
+	stk::mesh::put_field(*sdr_, meta_.universal_part(), 1);
+	stk::mesh::put_field(*tvisc_, meta_.universal_part(), 1);
+	stk::mesh::put_field(*dudx_, meta_.universal_part(), spatialDim_ * spatialDim_);
+      }
+
+  virtual ~TurbKineticEnergySSTKernelHex8Mesh() {}
+
+  virtual void fill_mesh_and_init_fields(bool doPerturb = false)
+  {
+    LowMachKernelHex8Mesh::fill_mesh_and_init_fields(doPerturb);
+    // FIXME !!
+    stk::mesh::field_fill(0.4, *tke_);
+    stk::mesh::field_fill(0.5, *sdr_);
+    stk::mesh::field_fill(0.3, *tvisc_);
+    unit_test_kernel_utils::density_test_function(bulk_, *coordinates_, *density_);
+    //unit_test_kernel_utils::tke_test_function(bulk_, *coordinates_, *tke_);
+    unit_test_kernel_utils::dudx_test_function(bulk_, *coordinates_, *dudx_);
+  }
+
+  ScalarFieldType* tke_{nullptr};
+  ScalarFieldType* sdr_{nullptr};
+  ScalarFieldType* tvisc_{nullptr};
+  GenericFieldType* dudx_{nullptr};
+};
+
+ /** Text fixture for heat conduction equation kernels
  *
  *  This test fixture performs the following actions:
  *    - Create a HEX8 mesh with one element
