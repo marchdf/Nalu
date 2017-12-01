@@ -25,8 +25,10 @@ namespace sierra {
     TurbKineticEnergySSTSrcElemKernel<AlgTraits>::TurbKineticEnergySSTSrcElemKernel(
 										    const stk::mesh::BulkData& bulkData,
 										    const SolutionOptions& solnOpts,
-										    ElemDataRequests& dataPreReqs)
+										    ElemDataRequests& dataPreReqs,
+										    const bool lumpedMass)
       : Kernel(),
+	lumpedMass_(lumpedMass),
 	betaStar_(solnOpts.get_turb_model_constant(TM_betaStar)),
 	tkeProdLimitRatio_(solnOpts.get_turb_model_constant(TM_tkeProdLimitRatio)),
 	ipNodeMap_(sierra::nalu::MasterElementRepo::get_volume_master_element(AlgTraits::topo_)->ipNodeMap())
@@ -44,6 +46,12 @@ namespace sierra {
       coordinates_ = metaData.get_field<VectorFieldType>(stk::topology::NODE_RANK, solnOpts.get_coordinates_name());
 
       MasterElement* meSCV = sierra::nalu::MasterElementRepo::get_volume_master_element(AlgTraits::topo_);
+
+      // compute shape function
+      if ( lumpedMass_ )
+	get_scv_shape_fn_data<AlgTraits>([&](double* ptr){meSCV->shifted_shape_fcn(ptr);}, v_shape_function_);
+      else
+	get_scv_shape_fn_data<AlgTraits>([&](double* ptr){meSCV->shape_fcn(ptr);}, v_shape_function_);
 
       // add master elements
       dataPreReqs.add_cvfem_volume_me(meSCV);
@@ -87,35 +95,41 @@ namespace sierra {
 	// save off scvol
 	const DoubleType scV = v_scv_volume(ip);
 
+	DoubleType rho = 0.0;
+	DoubleType tke = 0.0;
+	DoubleType sdr = 0.0;
+	DoubleType tvisc = 0.0;
+	DoubleType Pk = 0.0;
 	for (int ic=0; ic < AlgTraits::nodesPerElement_; ++ic) {
 
-	  const DoubleType rhoIC = v_densityNp1(ic);
-	  const DoubleType sdrIC = v_sdrNp1(ic);
-	  const DoubleType tkeIC = v_tkeNp1(ic);
-	  const DoubleType tviscIC = v_tvisc(ic);
+	  const DoubleType r = v_shape_function_(ip, ic);
 
-	  DoubleType Pk = 0.0;
+	  rho += r * v_densityNp1(ic);
+	  tke += r * v_tkeNp1(ic);
+	  sdr += r * v_sdrNp1(ic);
+	  tvisc += r * v_tvisc(ic);
+
 	  for ( int i = 0; i < AlgTraits::nDim_; ++i ) {
 	    const DoubleType dni = v_dndx(ip,ic,i);
 	    const DoubleType ui = v_velocityNp1(ic,i);
 	    for ( int j = 0; j < AlgTraits::nDim_; ++j ) {
 	      const DoubleType dnj = v_dndx(ip,ic,j);
 	      Pk += dnj * ui * (dnj*ui + dni * v_velocityNp1(ic,j));
-	   }
+	    }
 	  }
-	  Pk *= tviscIC;
-
-	  // tke factor
-	  const DoubleType tkeFac = betaStar_*rhoIC*sdrIC;
-
-	  // dissipation and production (limited)
-	  DoubleType Dk = tkeFac * tkeIC;
-	  Pk = stk::math::min(Pk, tkeProdLimitRatio_*Dk);
-	  
-	  // assemble RHS and LHS
-	  rhs(nearestNode) += (Pk - Dk)*scV;
-	  lhs(nearestNode,nearestNode) += tkeFac*scV;
 	}
+	Pk *= tvisc;
+
+	// tke factor
+	const DoubleType tkeFac = betaStar_*rho*sdr;
+
+	// dissipation and production (limited)
+	DoubleType Dk = tkeFac * tke;
+	Pk = stk::math::min(Pk, tkeProdLimitRatio_*Dk);
+	  
+	// assemble RHS and LHS
+	rhs(nearestNode) += (Pk - Dk)*scV;
+	lhs(nearestNode,nearestNode) += tkeFac*scV;
       }
     }
 

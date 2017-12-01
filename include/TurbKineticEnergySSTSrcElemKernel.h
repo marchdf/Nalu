@@ -30,7 +30,8 @@ namespace sierra {
         TurbKineticEnergySSTSrcElemKernel(
 					  const stk::mesh::BulkData&,
 					  const SolutionOptions&,
-					  ElemDataRequests&);
+					  ElemDataRequests&,
+					  const bool);
 
         virtual ~TurbKineticEnergySSTSrcElemKernel();
 
@@ -52,6 +53,7 @@ namespace sierra {
 	ScalarFieldType *tvisc_{nullptr};
 	VectorFieldType *coordinates_{nullptr};
 
+	const bool lumpedMass_;
 	double betaStar_{0.0};
 	double tkeProdLimitRatio_{0.0};
 
