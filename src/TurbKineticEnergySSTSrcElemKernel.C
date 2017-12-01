@@ -151,7 +151,9 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
 
     // assemble RHS and LHS
     rhs(nearestNode) += (Pk - Dk) * scV;
-    lhs(nearestNode, nearestNode) += tkeFac * scV;
+    for (int ic = 0; ic < AlgTraits::nodesPerElement_; ++ic) {
+      lhs(nearestNode, ic) += v_shape_function_(ip, ic) * tkeFac * scV;
+    }
   }
 }
 
