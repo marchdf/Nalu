@@ -64,6 +64,7 @@
 #include <ScalarAdvDiffElemKernel.h>
 #include <ScalarUpwAdvDiffElemKernel.h>
 #include <TurbKineticEnergyKsgsSrcElemKernel.h>
+#include <TurbKineticEnergySSTSrcElemKernel.h>
 
 // nso
 #include <nso/ScalarNSOElemKernel.h>
@@ -418,6 +419,14 @@ TurbKineticEnergyEquationSystem::register_interior_algorithm(
       build_topo_kernel_if_requested<TurbKineticEnergyKsgsSrcElemKernel>
         (partTopo, *this, activeKernels, "ksgs",
          realm_.bulk_data(), *realm_.solutionOptions_, dataPreReqs);
+
+      build_topo_kernel_if_requested<TurbKineticEnergySSTSrcElemKernel>
+        (partTopo, *this, activeKernels, "sst",
+         realm_.bulk_data(), *realm_.solutionOptions_, dataPreReqs, false);
+
+      build_topo_kernel_if_requested<TurbKineticEnergySSTSrcElemKernel>
+        (partTopo, *this, activeKernels, "lumped_sst",
+         realm_.bulk_data(), *realm_.solutionOptions_, dataPreReqs, true);
 
       build_topo_kernel_if_requested<ScalarNSOElemKernel>
         (partTopo, *this, activeKernels, "NSO_2ND",

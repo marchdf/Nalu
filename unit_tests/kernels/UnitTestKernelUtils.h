@@ -371,13 +371,11 @@ public:
   virtual void fill_mesh_and_init_fields(bool doPerturb = false)
   {
     LowMachKernelHex8Mesh::fill_mesh_and_init_fields(doPerturb);
-    // FIXME !!
-    stk::mesh::field_fill(0.4, *tke_);
-    stk::mesh::field_fill(0.5, *sdr_);
     stk::mesh::field_fill(0.3, *tvisc_);
     unit_test_kernel_utils::density_test_function(
       bulk_, *coordinates_, *density_);
-    // unit_test_kernel_utils::tke_test_function(bulk_, *coordinates_, *tke_);
+    unit_test_kernel_utils::tke_test_function(bulk_, *coordinates_, *tke_);
+    unit_test_kernel_utils::sdr_test_function(bulk_, *coordinates_, *sdr_);
     unit_test_kernel_utils::dudx_test_function(bulk_, *coordinates_, *dudx_);
   }
 
