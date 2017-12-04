@@ -53,7 +53,7 @@ private:
   VectorFieldType* coordinates_{nullptr};
 
   const bool lumpedMass_;
-  double betaStar_{0.0};
+  const double betaStar_;
   double tkeProdLimitRatio_{0.0};
 
   const int* ipNodeMap_;

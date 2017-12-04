@@ -5,8 +5,8 @@
 /*  directory structure                                                   */
 /*------------------------------------------------------------------------*/
 
-#ifndef TURBKINETICENERGYSSTDESSRCELEMKERNEL_H
-#define TURBKINETICENERGYSSTDESSRCELEMKERNEL_H
+#ifndef SPECIFICDISSIPATIONRATESSTSRCELEMKERNEL_H
+#define SPECIFICDISSIPATIONRATESSTSRCELEMKERNEL_H
 
 #include "Kernel.h"
 #include "FieldTypeDef.h"
@@ -23,16 +23,16 @@ class MasterElement;
 class ElemDataRequests;
 
 template <typename AlgTraits>
-class TurbKineticEnergySSTDESSrcElemKernel : public Kernel
+class SpecificDissipationRateSSTSrcElemKernel : public Kernel
 {
 public:
-  TurbKineticEnergySSTDESSrcElemKernel(
+  SpecificDissipationRateSSTSrcElemKernel(
     const stk::mesh::BulkData&,
     const SolutionOptions&,
     ElemDataRequests&,
     const bool);
 
-  virtual ~TurbKineticEnergySSTDESSrcElemKernel();
+  virtual ~SpecificDissipationRateSSTSrcElemKernel();
 
   /** Execute the kernel within a Kokkos loop and populate the LHS and RHS for
    *  the linear solve
@@ -43,22 +43,24 @@ public:
     ScratchViews<DoubleType>&);
 
 private:
-  TurbKineticEnergySSTDESSrcElemKernel() = delete;
+  SpecificDissipationRateSSTSrcElemKernel() = delete;
 
   ScalarFieldType* tkeNp1_{nullptr};
   ScalarFieldType* sdrNp1_{nullptr};
   ScalarFieldType* densityNp1_{nullptr};
   VectorFieldType* velocityNp1_{nullptr};
   ScalarFieldType* tvisc_{nullptr};
-  ScalarFieldType* maxLengthScale_{nullptr};
   ScalarFieldType* fOneBlend_{nullptr};
   VectorFieldType* coordinates_{nullptr};
 
   const bool lumpedMass_;
   const double betaStar_;
+  const double sigmaWTwo_;
+  const double betaOne_;
+  const double betaTwo_;
+  const double gammaOne_;
+  const double gammaTwo_;
   double tkeProdLimitRatio_{0.0};
-  double cDESke_{0.0};
-  double cDESkw_{0.0};
 
   const int* ipNodeMap_;
 
@@ -70,4 +72,4 @@ private:
 } // namespace nalu
 } // namespace sierra
 
-#endif /* TURBKINETICENERGYSSTDESSRCELEMKERNEL_H */
+#endif /* SPECIFICDISSIPATIONRATESSTSRCELEMKERNEL_H */

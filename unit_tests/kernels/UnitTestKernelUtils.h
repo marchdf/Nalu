@@ -342,13 +342,13 @@ public:
   ScalarFieldType* temperature_{nullptr};
 };
 
-/** Test Fixture for Turbulence Kernels
+/** Test Fixture for the SST Kernels
  *
  */
-class TurbKineticEnergyKernelHex8Mesh : public LowMachKernelHex8Mesh
+class SSTKernelHex8Mesh : public LowMachKernelHex8Mesh
 {
 public:
-  TurbKineticEnergyKernelHex8Mesh()
+  SSTKernelHex8Mesh()
     : LowMachKernelHex8Mesh(),
       tke_(&meta_.declare_field<ScalarFieldType>(
         stk::topology::NODE_RANK, "turbulent_ke")),
@@ -368,7 +368,7 @@ public:
     stk::mesh::put_field(*fOneBlend_, meta_.universal_part(), 1);
   }
 
-  virtual ~TurbKineticEnergyKernelHex8Mesh() {}
+  virtual ~SSTKernelHex8Mesh() {}
 
   virtual void fill_mesh_and_init_fields(bool doPerturb = false)
   {

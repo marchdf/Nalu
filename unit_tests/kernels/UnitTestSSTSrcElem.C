@@ -11,6 +11,7 @@
 
 #include "TurbKineticEnergySSTSrcElemKernel.h"
 #include "TurbKineticEnergySSTDESSrcElemKernel.h"
+#include "SpecificDissipationRateSSTSrcElemKernel.h"
 
 namespace {
 namespace hex8_golds {
@@ -119,10 +120,63 @@ static constexpr double rhs[8] = {
 };
 
 } // namespace TurbKineticEnergySSTDESSrcElemKernel
+
+namespace SpecificDissipationRateSSTSrcElemKernel {
+
+static constexpr double lhs[8][8] = {
+  {
+    0.16830144483151507, 0.056100481610505029, 0.018700160536835007,
+    0.056100481610505029, 0.056100481610505029, 0.018700160536835007,
+    0.0062333868456116697, 0.018700160536835007,
+  },
+  {
+    0.039427962222187668, 0.118283886666563, 0.039427962222187668,
+    0.013142654074062557, 0.013142654074062557, 0.039427962222187668,
+    0.013142654074062557, 0.0043808846913541855,
+  },
+  {
+    0.011393016582828068, 0.034179049748484201, 0.10253714924545261,
+    0.034179049748484201, 0.0037976721942760226, 0.011393016582828068,
+    0.034179049748484201, 0.011393016582828068,
+  },
+  {
+    0.048595301433219079, 0.016198433811073026, 0.048595301433219079,
+    0.14578590429965724, 0.016198433811073026, 0.0053994779370243424,
+    0.016198433811073026, 0.048595301433219079,
+  },
+  {
+    0.038838931011900821, 0.012946310337300274, 0.0043154367791000915,
+    0.012946310337300274, 0.11651679303570248, 0.038838931011900821,
+    0.012946310337300274, 0.038838931011900821,
+  },
+  {
+    0.0075958254763728835, 0.022787476429118651, 0.0075958254763728835,
+    0.0025319418254576278, 0.022787476429118651, 0.068362429287355947,
+    0.022787476429118651, 0.0075958254763728835,
+  },
+  {
+    0.0022113769883583762, 0.0066341309650751286, 0.019902392895225385,
+    0.0066341309650751286, 0.0066341309650751286, 0.019902392895225385,
+    0.059707178685676154, 0.019902392895225385,
+  },
+  {
+    0.01041806031306038, 0.0034726867710201267, 0.01041806031306038,
+    0.031254180939181142, 0.031254180939181142, 0.01041806031306038,
+    0.031254180939181142, 0.093762542817543426,
+  },
+};
+
+static constexpr double rhs[8] = {
+  0.74767435661938209, 0.54339860453045752, 0.48953955267320354,
+  0.69657914067554871, 0.52854536355285653, 0.31844406143891979,
+  0.30053506738269653, 0.48071925627889456,
+};
+
+} // namespace SpecificDissipationRateSSTSrcElemKernel
 } // namespace hex8_golds
 } // anonymous namespace
 
-TEST_F(TurbKineticEnergyKernelHex8Mesh, turbkineticenergysstsrcelem)
+TEST_F(SSTKernelHex8Mesh, turbkineticenergysstsrcelem)
 {
 
   fill_mesh_and_init_fields();
@@ -159,7 +213,7 @@ TEST_F(TurbKineticEnergyKernelHex8Mesh, turbkineticenergysstsrcelem)
     helperObjs.linsys->lhs_, gold_values::lhs);
 }
 
-TEST_F(TurbKineticEnergyKernelHex8Mesh, turbkineticenergysstdessrcelem)
+TEST_F(SSTKernelHex8Mesh, turbkineticenergysstdessrcelem)
 {
 
   fill_mesh_and_init_fields();
@@ -190,6 +244,43 @@ TEST_F(TurbKineticEnergyKernelHex8Mesh, turbkineticenergysstdessrcelem)
   EXPECT_EQ(helperObjs.linsys->rhs_.dimension(0), 8u);
 
   namespace gold_values = hex8_golds::TurbKineticEnergySSTDESSrcElemKernel;
+  unit_test_kernel_utils::expect_all_near(
+    helperObjs.linsys->rhs_, gold_values::rhs);
+  unit_test_kernel_utils::expect_all_near<8>(
+    helperObjs.linsys->lhs_, gold_values::lhs);
+}
+
+TEST_F(SSTKernelHex8Mesh, specificdissipationratesstsrcelem)
+{
+
+  fill_mesh_and_init_fields();
+
+  // Setup solution options
+  solnOpts_.meshMotion_ = false;
+  solnOpts_.meshDeformation_ = false;
+  solnOpts_.externalMeshDeformation_ = false;
+  solnOpts_.initialize_turbulence_constants();
+
+  unit_test_utils::HelperObjectsNewME helperObjs(
+    bulk_, stk::topology::HEX_8, 1, partVec_[0]);
+
+  // Initialize the kernel
+  std::unique_ptr<sierra::nalu::Kernel> kernel(
+    new sierra::nalu::SpecificDissipationRateSSTSrcElemKernel<
+      sierra::nalu::AlgTraitsHex8>(
+      bulk_, solnOpts_, helperObjs.assembleElemSolverAlg->dataNeededByKernels_,
+      false));
+
+  // Add to kernels to be tested
+  helperObjs.assembleElemSolverAlg->activeKernels_.push_back(kernel.get());
+
+  helperObjs.assembleElemSolverAlg->execute();
+
+  EXPECT_EQ(helperObjs.linsys->lhs_.dimension(0), 8u);
+  EXPECT_EQ(helperObjs.linsys->lhs_.dimension(1), 8u);
+  EXPECT_EQ(helperObjs.linsys->rhs_.dimension(0), 8u);
+
+  namespace gold_values = hex8_golds::SpecificDissipationRateSSTSrcElemKernel;
   unit_test_kernel_utils::expect_all_near(
     helperObjs.linsys->rhs_, gold_values::rhs);
   unit_test_kernel_utils::expect_all_near<8>(

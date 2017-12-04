@@ -47,7 +47,20 @@
 #include <SpecificDissipationRateSSTNodeSourceSuppAlg.h>
 #include <SolverAlgorithmDriver.h>
 
+// template for supp algs
+#include <AlgTraits.h>
+#include <KernelBuilder.h>
+#include <KernelBuilderLog.h>
+
+// consolidated
+#include <AssembleElemSolverAlgorithm.h>
+#include <ScalarMassElemKernel.h>
+#include <ScalarAdvDiffElemKernel.h>
+#include <ScalarUpwAdvDiffElemKernel.h>
+#include <SpecificDissipationRateSSTSrcElemKernel.h>
+
 // nso
+#include <nso/ScalarNSOElemKernel.h>
 #include <nso/ScalarNSOKeElemSuppAlg.h>
 #include <nso/ScalarNSOElemSuppAlgDep.h>
 
@@ -183,161 +196,241 @@ SpecificDissipationRateEquationSystem::register_nodal_fields(
 //--------------------------------------------------------------------------
 void
 SpecificDissipationRateEquationSystem::register_interior_algorithm(
-  stk::mesh::Part *part)
+  stk::mesh::Part* part)
 {
 
   // types of algorithms
   const AlgorithmType algType = INTERIOR;
 
-  ScalarFieldType &sdrNp1 = sdr_->field_of_state(stk::mesh::StateNP1);
-  VectorFieldType &dwdxNone = dwdx_->field_of_state(stk::mesh::StateNone);
+  ScalarFieldType& sdrNp1 = sdr_->field_of_state(stk::mesh::StateNP1);
+  VectorFieldType& dwdxNone = dwdx_->field_of_state(stk::mesh::StateNone);
 
   // non-solver, dwdx; allow for element-based shifted
-  std::map<AlgorithmType, Algorithm *>::iterator it
-    = assembleNodalGradAlgDriver_->algMap_.find(algType);
-  if ( it == assembleNodalGradAlgDriver_->algMap_.end() ) {
-    Algorithm *theAlg = NULL;
-    if ( edgeNodalGradient_ && realm_.realmUsesEdges_ ) {
-      theAlg = new AssembleNodalGradEdgeAlgorithm(realm_, part, &sdrNp1, &dwdxNone);
-    }
-    else {
-      theAlg = new AssembleNodalGradElemAlgorithm(realm_, part, &sdrNp1, &dwdxNone, edgeNodalGradient_);
+  std::map<AlgorithmType, Algorithm*>::iterator it =
+    assembleNodalGradAlgDriver_->algMap_.find(algType);
+  if (it == assembleNodalGradAlgDriver_->algMap_.end()) {
+    Algorithm* theAlg = NULL;
+    if (edgeNodalGradient_ && realm_.realmUsesEdges_) {
+      theAlg =
+        new AssembleNodalGradEdgeAlgorithm(realm_, part, &sdrNp1, &dwdxNone);
+    } else {
+      theAlg = new AssembleNodalGradElemAlgorithm(
+        realm_, part, &sdrNp1, &dwdxNone, edgeNodalGradient_);
     }
     assembleNodalGradAlgDriver_->algMap_[algType] = theAlg;
-  }
-  else {
+  } else {
     it->second->partVec_.push_back(part);
   }
 
   // solver; interior contribution (advection + diffusion)
-  std::map<AlgorithmType, SolverAlgorithm *>::iterator itsi
-    = solverAlgDriver_->solverAlgMap_.find(algType);
-  if ( itsi == solverAlgDriver_->solverAlgMap_.end() ) {
-    SolverAlgorithm *theAlg = NULL;
-    if ( realm_.realmUsesEdges_ ) {
-      theAlg = new AssembleScalarEdgeSolverAlgorithm(realm_, part, this, sdr_, dwdx_, evisc_);
-    }
-    else {
-      theAlg = new AssembleScalarElemSolverAlgorithm(realm_, part, this, sdr_, dwdx_, evisc_);
-    }
-    solverAlgDriver_->solverAlgMap_[algType] = theAlg;
+  if (!realm_.solutionOptions_->useConsolidatedSolverAlg_) {
 
-    // look for fully integrated source terms
-    std::map<std::string, std::vector<std::string> >::iterator isrc 
-      = realm_.solutionOptions_->elemSrcTermsMap_.find("specific_dissipation_rate");
-    if ( isrc != realm_.solutionOptions_->elemSrcTermsMap_.end() ) {
-
-      if ( realm_.realmUsesEdges_ )
-        throw std::runtime_error("SpecificDissipationElemSrcTerms::Error can not use element source terms for an edge-based scheme");
-      
-      std::vector<std::string> mapNameVec = isrc->second;
-      for (size_t k = 0; k < mapNameVec.size(); ++k ) {
-        std::string sourceName = mapNameVec[k];
-        SupplementalAlgorithm *suppAlg = NULL;
-        if (sourceName == "NSO_2ND_ALT" ) {
-          suppAlg = new ScalarNSOElemSuppAlgDep(realm_, sdr_, dwdx_, evisc_, 0.0, 1.0);
-        }
-        else if (sourceName == "NSO_4TH_ALT" ) {
-          suppAlg = new ScalarNSOElemSuppAlgDep(realm_, sdr_, dwdx_, evisc_, 1.0, 1.0);
-        }
-        else if (sourceName == "NSO_2ND_KE" ) {
-          const double turbSc = realm_.get_turb_schmidt(sdr_->name());
-          suppAlg = new ScalarNSOKeElemSuppAlg(realm_, sdr_, dwdx_, turbSc, 0.0);
-        }
-        else if (sourceName == "NSO_4TH_KE" ) {
-          const double turbSc = realm_.get_turb_schmidt(sdr_->name());
-          suppAlg = new ScalarNSOKeElemSuppAlg(realm_, sdr_, dwdx_, turbSc, 1.0);
-        }
-        else if (sourceName == "specific_dissipation_rate_time_derivative" ) {
-          suppAlg = new ScalarMassElemSuppAlgDep(realm_, sdr_, false);
-        }
-        else if (sourceName == "lumped_specific_dissipation_rate_time_derivative" ) {
-          suppAlg = new ScalarMassElemSuppAlgDep(realm_, sdr_, true);
-        }
-        else {
-          throw std::runtime_error("SpecificDissipationElemSrcTerms::Error Source term is not supported: " + sourceName);
-        }
-        NaluEnv::self().naluOutputP0() << "SpecificDissipationElemSrcTerms::added() " << sourceName << std::endl;
-        theAlg->supplementalAlg_.push_back(suppAlg); 
+    std::map<AlgorithmType, SolverAlgorithm*>::iterator itsi =
+      solverAlgDriver_->solverAlgMap_.find(algType);
+    if (itsi == solverAlgDriver_->solverAlgMap_.end()) {
+      SolverAlgorithm* theAlg = NULL;
+      if (realm_.realmUsesEdges_) {
+        theAlg = new AssembleScalarEdgeSolverAlgorithm(
+          realm_, part, this, sdr_, dwdx_, evisc_);
+      } else {
+        theAlg = new AssembleScalarElemSolverAlgorithm(
+          realm_, part, this, sdr_, dwdx_, evisc_);
       }
-    }
-  }
-  else {
-    itsi->second->partVec_.push_back(part);
-  }
+      solverAlgDriver_->solverAlgMap_[algType] = theAlg;
 
-  // time term; src; both nodally lumped
-  const AlgorithmType algMass = MASS;
-  // Check if the user has requested CMM or LMM algorithms; if so, do not
-  // include Nodal Mass algorithms
-  std::vector<std::string> checkAlgNames = {
-    "specific_dissipation_rate_time_derivative",
-    "lumped_specific_dissipation_rate_time_derivative"};
-  bool elementMassAlg = supp_alg_is_requested(checkAlgNames);
-  std::map<AlgorithmType, SolverAlgorithm *>::iterator itsm =
-    solverAlgDriver_->solverAlgMap_.find(algMass);
-  if ( itsm == solverAlgDriver_->solverAlgMap_.end() ) {
-    // create the solver alg
-    AssembleNodeSolverAlgorithm *theAlg
-      = new AssembleNodeSolverAlgorithm(realm_, part, this);
-    solverAlgDriver_->solverAlgMap_[algMass] = theAlg;
+      // look for fully integrated source terms
+      std::map<std::string, std::vector<std::string>>::iterator isrc =
+        realm_.solutionOptions_->elemSrcTermsMap_.find(
+          "specific_dissipation_rate");
+      if (isrc != realm_.solutionOptions_->elemSrcTermsMap_.end()) {
 
-    // now create the supplemental alg for mass term
-    if ( !elementMassAlg ) {
-      if ( realm_.number_of_states() == 2 ) {
-        ScalarMassBackwardEulerNodeSuppAlg *theMass
-          = new ScalarMassBackwardEulerNodeSuppAlg(realm_, sdr_);
-        theAlg->supplementalAlg_.push_back(theMass);
-      }
-      else {
-        ScalarMassBDF2NodeSuppAlg *theMass
-          = new ScalarMassBDF2NodeSuppAlg(realm_, sdr_);
-        theAlg->supplementalAlg_.push_back(theMass);
-      }
-    }
+        if (realm_.realmUsesEdges_)
+          throw std::runtime_error("SpecificDissipationElemSrcTerms::Error can "
+                                   "not use element source terms for an "
+                                   "edge-based scheme");
 
-    // now create the src alg for sdr source
-    SpecificDissipationRateSSTNodeSourceSuppAlg *theSrc
-      = new SpecificDissipationRateSSTNodeSourceSuppAlg(realm_);
-    theAlg->supplementalAlg_.push_back(theSrc);
-
-    // Add src term supp alg...; limited number supported
-    std::map<std::string, std::vector<std::string> >::iterator isrc 
-      = realm_.solutionOptions_->srcTermsMap_.find("specific_dissipation_rate");
-    if ( isrc != realm_.solutionOptions_->srcTermsMap_.end() ) {
-      std::vector<std::string> mapNameVec = isrc->second;   
-      for (size_t k = 0; k < mapNameVec.size(); ++k ) {
-        std::string sourceName = mapNameVec[k];
-        SupplementalAlgorithm *suppAlg = NULL;
-        if ( sourceName == "gcl" ) {
-          suppAlg = new ScalarGclNodeSuppAlg(sdr_,realm_);
+        std::vector<std::string> mapNameVec = isrc->second;
+        for (size_t k = 0; k < mapNameVec.size(); ++k) {
+          std::string sourceName = mapNameVec[k];
+          SupplementalAlgorithm* suppAlg = NULL;
+          if (sourceName == "NSO_2ND_ALT") {
+            suppAlg = new ScalarNSOElemSuppAlgDep(
+              realm_, sdr_, dwdx_, evisc_, 0.0, 1.0);
+          } else if (sourceName == "NSO_4TH_ALT") {
+            suppAlg = new ScalarNSOElemSuppAlgDep(
+              realm_, sdr_, dwdx_, evisc_, 1.0, 1.0);
+          } else if (sourceName == "NSO_2ND_KE") {
+            const double turbSc = realm_.get_turb_schmidt(sdr_->name());
+            suppAlg =
+              new ScalarNSOKeElemSuppAlg(realm_, sdr_, dwdx_, turbSc, 0.0);
+          } else if (sourceName == "NSO_4TH_KE") {
+            const double turbSc = realm_.get_turb_schmidt(sdr_->name());
+            suppAlg =
+              new ScalarNSOKeElemSuppAlg(realm_, sdr_, dwdx_, turbSc, 1.0);
+          } else if (
+            sourceName == "specific_dissipation_rate_time_derivative") {
+            suppAlg = new ScalarMassElemSuppAlgDep(realm_, sdr_, false);
+          } else if (
+            sourceName == "lumped_specific_dissipation_rate_time_derivative") {
+            suppAlg = new ScalarMassElemSuppAlgDep(realm_, sdr_, true);
+          } else {
+            throw std::runtime_error(
+              "SpecificDissipationElemSrcTerms::Error Source term is not "
+              "supported: " +
+              sourceName);
+          }
+          NaluEnv::self().naluOutputP0()
+            << "SpecificDissipationElemSrcTerms::added() " << sourceName
+            << std::endl;
+          theAlg->supplementalAlg_.push_back(suppAlg);
         }
-        else {
-          throw std::runtime_error("SpecificDissipationRateNodalSrcTerms::Error Source term is not supported: " + sourceName);
-        }
-        NaluEnv::self().naluOutputP0() << "SpecificDissipationRateNodalSrcTerms::added() " << sourceName << std::endl;
-        theAlg->supplementalAlg_.push_back(suppAlg);
       }
+    } else {
+      itsi->second->partVec_.push_back(part);
     }
-  }
-  else {
-    itsm->second->partVec_.push_back(part);
+
+    // time term; src; both nodally lumped
+    const AlgorithmType algMass = MASS;
+    // Check if the user has requested CMM or LMM algorithms; if so, do not
+    // include Nodal Mass algorithms
+    std::vector<std::string> checkAlgNames = {
+      "specific_dissipation_rate_time_derivative",
+      "lumped_specific_dissipation_rate_time_derivative"};
+    bool elementMassAlg = supp_alg_is_requested(checkAlgNames);
+    std::map<AlgorithmType, SolverAlgorithm*>::iterator itsm =
+      solverAlgDriver_->solverAlgMap_.find(algMass);
+    if (itsm == solverAlgDriver_->solverAlgMap_.end()) {
+      // create the solver alg
+      AssembleNodeSolverAlgorithm* theAlg =
+        new AssembleNodeSolverAlgorithm(realm_, part, this);
+      solverAlgDriver_->solverAlgMap_[algMass] = theAlg;
+
+      // now create the supplemental alg for mass term
+      if (!elementMassAlg) {
+        if (realm_.number_of_states() == 2) {
+          ScalarMassBackwardEulerNodeSuppAlg* theMass =
+            new ScalarMassBackwardEulerNodeSuppAlg(realm_, sdr_);
+          theAlg->supplementalAlg_.push_back(theMass);
+        } else {
+          ScalarMassBDF2NodeSuppAlg* theMass =
+            new ScalarMassBDF2NodeSuppAlg(realm_, sdr_);
+          theAlg->supplementalAlg_.push_back(theMass);
+        }
+      }
+
+      // now create the src alg for sdr source
+      SpecificDissipationRateSSTNodeSourceSuppAlg* theSrc =
+        new SpecificDissipationRateSSTNodeSourceSuppAlg(realm_);
+      theAlg->supplementalAlg_.push_back(theSrc);
+
+      // Add src term supp alg...; limited number supported
+      std::map<std::string, std::vector<std::string>>::iterator isrc =
+        realm_.solutionOptions_->srcTermsMap_.find("specific_dissipation_rate");
+      if (isrc != realm_.solutionOptions_->srcTermsMap_.end()) {
+        std::vector<std::string> mapNameVec = isrc->second;
+        for (size_t k = 0; k < mapNameVec.size(); ++k) {
+          std::string sourceName = mapNameVec[k];
+          SupplementalAlgorithm* suppAlg = NULL;
+          if (sourceName == "gcl") {
+            suppAlg = new ScalarGclNodeSuppAlg(sdr_, realm_);
+          } else {
+            throw std::runtime_error(
+              "SpecificDissipationRateNodalSrcTerms::Error Source term is not "
+              "supported: " +
+              sourceName);
+          }
+          NaluEnv::self().naluOutputP0()
+            << "SpecificDissipationRateNodalSrcTerms::added() " << sourceName
+            << std::endl;
+          theAlg->supplementalAlg_.push_back(suppAlg);
+        }
+      }
+    } else {
+      itsm->second->partVec_.push_back(part);
+    }
+  } else {
+    // Homogeneous kernel implementation
+    if (realm_.realmUsesEdges_)
+      throw std::runtime_error(
+        "SpecificDissipationRateEquationSystem::Error can not "
+        "use element source terms for an edge-based "
+        "scheme");
+
+    stk::topology partTopo = part->topology();
+    auto& solverAlgMap = solverAlgDriver_->solverAlgorithmMap_;
+
+    AssembleElemSolverAlgorithm* solverAlg = nullptr;
+    bool solverAlgWasBuilt = false;
+
+    std::tie(solverAlg, solverAlgWasBuilt) =
+      build_or_add_part_to_solver_alg(*this, *part, solverAlgMap);
+
+    ElemDataRequests& dataPreReqs = solverAlg->dataNeededByKernels_;
+    auto& activeKernels = solverAlg->activeKernels_;
+
+    if (solverAlgWasBuilt) {
+      build_topo_kernel_if_requested<ScalarMassElemKernel>(
+        partTopo, *this, activeKernels,
+        "specific_dissipation_rate_time_derivative", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dataPreReqs, false);
+
+      build_topo_kernel_if_requested<ScalarMassElemKernel>(
+        partTopo, *this, activeKernels,
+        "lumped_specific_dissipation_rate_time_derivative", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dataPreReqs, true);
+
+      build_topo_kernel_if_requested<ScalarAdvDiffElemKernel>(
+        partTopo, *this, activeKernels, "advection_diffusion",
+        realm_.bulk_data(), *realm_.solutionOptions_, sdr_, evisc_,
+        dataPreReqs);
+
+      build_topo_kernel_if_requested<ScalarUpwAdvDiffElemKernel>(
+        partTopo, *this, activeKernels, "upw_advection_diffusion",
+        realm_.bulk_data(), *realm_.solutionOptions_, this, sdr_, dwdx_, evisc_,
+        dataPreReqs);
+
+      build_topo_kernel_if_requested<SpecificDissipationRateSSTSrcElemKernel>(
+        partTopo, *this, activeKernels, "sst", realm_.bulk_data(),
+        *realm_.solutionOptions_, dataPreReqs, false);
+
+      build_topo_kernel_if_requested<SpecificDissipationRateSSTSrcElemKernel>(
+        partTopo, *this, activeKernels, "lumped_sst", realm_.bulk_data(),
+        *realm_.solutionOptions_, dataPreReqs, true);
+
+      build_topo_kernel_if_requested<ScalarNSOElemKernel>(
+        partTopo, *this, activeKernels, "NSO_2ND", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dwdx_, evisc_, 0.0, 0.0, dataPreReqs);
+
+      build_topo_kernel_if_requested<ScalarNSOElemKernel>(
+        partTopo, *this, activeKernels, "NSO_2ND_ALT", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dwdx_, evisc_, 0.0, 1.0, dataPreReqs);
+
+      build_topo_kernel_if_requested<ScalarNSOElemKernel>(
+        partTopo, *this, activeKernels, "NSO_4TH", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dwdx_, evisc_, 1.0, 0.0, dataPreReqs);
+
+      build_topo_kernel_if_requested<ScalarNSOElemKernel>(
+        partTopo, *this, activeKernels, "NSO_4TH_ALT", realm_.bulk_data(),
+        *realm_.solutionOptions_, sdr_, dwdx_, evisc_, 1.0, 1.0, dataPreReqs);
+
+      report_invalid_supp_alg_names();
+      report_built_supp_alg_names();
+    }
   }
 
   // effective diffusive flux coefficient alg for SST
-  std::map<AlgorithmType, Algorithm *>::iterator itev =
+  std::map<AlgorithmType, Algorithm*>::iterator itev =
     diffFluxCoeffAlgDriver_->algMap_.find(algType);
-  if ( itev == diffFluxCoeffAlgDriver_->algMap_.end() ) {
+  if (itev == diffFluxCoeffAlgDriver_->algMap_.end()) {
     const double sigmaWOne = realm_.get_turb_model_constant(TM_sigmaWOne);
     const double sigmaWTwo = realm_.get_turb_model_constant(TM_sigmaWTwo);
-    EffectiveSSTDiffFluxCoeffAlgorithm *effDiffAlg
-      = new EffectiveSSTDiffFluxCoeffAlgorithm(realm_, part, visc_, tvisc_, evisc_, sigmaWOne, sigmaWTwo);
+    EffectiveSSTDiffFluxCoeffAlgorithm* effDiffAlg =
+      new EffectiveSSTDiffFluxCoeffAlgorithm(
+        realm_, part, visc_, tvisc_, evisc_, sigmaWOne, sigmaWTwo);
     diffFluxCoeffAlgDriver_->algMap_[algType] = effDiffAlg;
-  }
-  else {
+  } else {
     itev->second->partVec_.push_back(part);
   }
-
 }
 
 //--------------------------------------------------------------------------
