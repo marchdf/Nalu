@@ -24,10 +24,24 @@ linear_solvers:
     output_level: 0
     muelu_xml_file_name: ../../xml/milestone.xml
 
+transfers:
+
+# Fluid to ....
+
+  - name: xfer_fluid_io
+    type: geometric
+    realm_pair: [fluidRealm, ioRealm]
+    mesh_part_pair: [Front, block_101]
+    objective: input_output
+    transfer_variables:
+      - [velocity, velocity_bc]
+      - [velocity, cont_velocity_bc]
+      - [temperature, temperature_bc]
+
 realms:
 
   - name: fluidRealm
-    mesh: ../../mesh/abl_1km_cube_sample.g
+    mesh: ../../mesh/abl_1km_cube_toy.g
     use_edges: yes
     automatic_decomposition_type: rcb
 
@@ -117,7 +131,7 @@ realms:
       wall_user_data:
         velocity: [0,0,0]
         use_abl_wall_function: yes
-        heat_flux: 0.0
+        heat_flux: 301.5
         reference_temperature: 300.0
         roughness_height: 0.1
         gravity_vector_component: 3
@@ -136,12 +150,13 @@ realms:
             enthalpy: 1.0
 
         - source_terms:
-            momentum: buoyancy
+            momentum: buoyancy_boussinesq_ra
             continuity: density_time_derivative
 
         - user_constants:
             gravity: [0.0,0.0,-9.81]
             reference_density: 1.2
+            boussinesq_time_scale: 3600.0 #seconds
 
         - hybrid_factor:
             velocity: 0.0
@@ -165,11 +180,15 @@ realms:
             enthalpy: 4.02
 
         - source_terms:
-            momentum: abl_forcing
+            momentum: body_force
+
+        - source_term_parameters:
+            momentum: [0.000135, 0.0, 0.0]
+
 
     output:
-      output_data_base_name: abl_1km_cube_sample.e
-      output_frequency: 1
+      output_data_base_name: abl_1km_cube_ra.e
+      output_frequency: 5
       output_node_set: no
       output_variables:
        - velocity
@@ -178,30 +197,39 @@ realms:
        - temperature
        - specific_heat
        - viscosity
+       - temperature_ma #always populated with moving average Boussinesq model
 
-    abl_forcing:
-      search_method: stk_kdtree
-      search_tolerance: 0.0001
-      search_expansion_factor: 1.5
+  - name: ioRealm
+    mesh: ../../mesh/abl_io.g
+    type: input_output
+    automatic_decomposition_type: rcb
 
-      from_target_part: [Unspecified-2-HEX]
+    field_registration:
+      specifications:
 
-      momentum:
-        type: computed
-        relaxation_factor: 1.0
-        heights: [80.0]
-        target_part_format: "zplane_%.0fm"
-        velocity_x:
-          - [0.0, 10.0]
-          - [900000.0, 10.0]
+        - field_name: velocity_bc
+          target_name: block_101
+          field_size: 3
+          field_type: node_rank
 
-        velocity_y:
-          - [0.0, 0.0]
-          - [90000.0, 0.0]
+        - field_name: cont_velocity_bc
+          target_name: block_101
+          field_size: 3
+          field_type: node_rank
 
-        velocity_z:
-          - [0.0, 0.0]
-          - [90000.0, 0.0]
+        - field_name: temperature_bc
+          target_name: block_101
+          field_size: 1
+          field_type: node_rank
+
+    output:
+      output_data_base_name: abl_io_results_ra.e
+      output_frequency: 1
+      output_node_set: no
+      output_variables:
+       - velocity_bc
+       - cont_velocity_bc
+       - temperature_bc
 
 Time_Integrators:
   - StandardTimeIntegrator:
@@ -215,3 +243,4 @@ Time_Integrators:
 
       realms:
         - fluidRealm
+        - ioRealm

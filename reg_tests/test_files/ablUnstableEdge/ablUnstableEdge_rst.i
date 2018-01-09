@@ -24,10 +24,25 @@ linear_solvers:
     output_level: 0
     muelu_xml_file_name: ../../xml/milestone.xml
 
+transfers:
+
+# Fluid to ....
+
+  - name: xfer_io_fluid
+    type: geometric
+    realm_pair: [ioRealm, fluidRealm]
+    mesh_part_pair: [block_101, Front]
+    objective: external_data
+    transfer_variables:
+      - [velocity_bc, velocity_bc]
+      - [velocity_bc, velocity]
+      - [temperature_bc, temperature_bc]
+      - [temperature_bc, temperature]
+
 realms:
 
   - name: fluidRealm
-    mesh: ../../mesh/abl_1km_cube_sample.g
+    mesh: ../../mesh/abl_1km_cube_toy.g
     use_edges: yes
     automatic_decomposition_type: rcb
 
@@ -95,29 +110,34 @@ realms:
 
     boundary_conditions:
 
-    - periodic_boundary_condition: bc_left_right
-      target_name: [Front, Back]
-      periodic_user_data:
-        search_tolerance: 0.0001
+    - inflow_boundary_condition: bc_inflow_front
+      target_name: Front
+      inflow_user_data:
+        velocity: [10.0,0,0]
+        temperature: 300.0
+        external_data: yes
 
-    - periodic_boundary_condition: bc_front_back
+    - open_boundary_condition: bc_open_back
+      target_name: Back
+      open_user_data:
+        velocity: [0.0,0,0]
+        temperature: 300.0
+
+    - periodic_boundary_condition: bc_left_right
       target_name: [Left, Right]
       periodic_user_data:
         search_tolerance: 0.0001 
 
-    - open_boundary_condition: bc_open
+    - symmetry_boundary_condition: bc_top
       target_name: Top
-      open_user_data:
-        velocity: [10.0,0,0]
-        pressure: 0.0
-        temperature: 300.0
+      symmetry_user_data:
 
     - wall_boundary_condition: bc_lower
       target_name: Ground
       wall_user_data:
         velocity: [0,0,0]
         use_abl_wall_function: yes
-        heat_flux: 0.0
+        heat_flux: 301.5
         reference_temperature: 300.0
         roughness_height: 0.1
         gravity_vector_component: 3
@@ -126,6 +146,7 @@ realms:
       name: myOptions
       turbulence_model: wale
       interp_rhou_together_for_mdot: yes
+      activate_open_mdot_correction: yes
 
       options:
 
@@ -165,54 +186,76 @@ realms:
             enthalpy: 4.02
 
         - source_terms:
-            momentum: abl_forcing
+            momentum: body_force
+
+        - source_term_parameters:
+            momentum: [0.000135, 0.0, 0.0]
 
     output:
-      output_data_base_name: abl_1km_cube_sample.e
-      @CATALYST_FILE_INPUT_DECK_COMMAND@
-      output_frequency: 1
+      output_data_base_name: abl_1km_cube_using_io.e
+      output_frequency: 5
       output_node_set: no
       output_variables:
        - velocity
+       - velocity_bc
        - pressure
        - enthalpy
        - temperature
+       - temperature_bc
        - specific_heat
        - viscosity
 
-    abl_forcing:
-      search_method: stk_kdtree
-      search_tolerance: 0.0001
-      search_expansion_factor: 1.5
+  - name: ioRealm
+    mesh: abl_io_results.e
+    type: external_field_provider
 
-      from_target_part: [Unspecified-2-HEX]
+    field_registration:
+      specifications:
 
-      momentum:
-        type: computed
-        relaxation_factor: 1.0
-        heights: [80.0]
-        target_part_format: "zplane_%.0fm"
-        velocity_x:
-          - [0.0, 10.0]
-          - [900000.0, 10.0]
+        - field_name: velocity_bc
+          target_name: block_101
+          field_size: 3
+          field_type: node_rank
 
-        velocity_y:
-          - [0.0, 0.0]
-          - [90000.0, 0.0]
+        - field_name: cont_velocity_bc
+          target_name: block_101
+          field_size: 3
+          field_type: node_rank
 
-        velocity_z:
-          - [0.0, 0.0]
-          - [90000.0, 0.0]
+        - field_name: temperature_bc
+          target_name: block_101
+          field_size: 1
+          field_type: node_rank
+
+    solution_options:
+      name: myOptions
+      input_variables_interpolate_in_time: yes
+      input_variables_from_file_restoration_time: 0.0
+
+      options:    
+        - input_variables_from_file:
+            velocity_bc: velocity_bc
+            cont_velocity_bc: cont_velocity_bc
+            temperature_bc: temperature_bc
+
+    output:
+      output_data_base_name: io_io_results_check.e
+      output_frequency: 1
+      output_node_set: no
+      output_variables:
+       - velocity_bc
+       - temperature_bc
 
 Time_Integrators:
   - StandardTimeIntegrator:
       name: ti_1
       start_time: 0
       termination_step_count: 10
-      time_step: 0.5
-      time_stepping_type: fixed
+      time_step: 1.0
+      time_stepping_type: automatic 
       time_step_count: 0
       second_order_accuracy: yes
 
       realms:
         - fluidRealm
+        - ioRealm

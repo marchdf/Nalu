@@ -6,36 +6,37 @@
 /*------------------------------------------------------------------------*/
 
 
-#ifndef AssembleElemSolverAlgorithmDep_h
-#define AssembleElemSolverAlgorithmDep_h
+#ifndef BoussinesqNonIsoEnthalpySrcNodeSuppAlg_h
+#define BoussinesqNonIsoEnthalpySrcNodeSuppAlg_h
 
-#include<SolverAlgorithm.h>
-#include<FieldTypeDef.h>
+#include <SupplementalAlgorithm.h>
+#include <FieldTypeDef.h>
 
-namespace stk {
-namespace mesh {
-class Part;
-}
-}
+#include <stk_mesh/base/Entity.hpp>
 
 namespace sierra{
 namespace nalu{
 
 class Realm;
 
-class AssembleElemSolverAlgorithmDep : public SolverAlgorithm
+class BoussinesqNonIsoEnthalpySrcNodeSuppAlg : public SupplementalAlgorithm
 {
 public:
 
-  AssembleElemSolverAlgorithmDep(
-    Realm &realm,
-    stk::mesh::Part *part,
-    EquationSystem *eqSystem);
-  virtual ~AssembleElemSolverAlgorithmDep() {}
-  virtual void initialize_connectivity();
-  virtual void execute();
+  BoussinesqNonIsoEnthalpySrcNodeSuppAlg(
+    Realm &realm);
 
-  const int sizeOfSystem_;
+  virtual ~BoussinesqNonIsoEnthalpySrcNodeSuppAlg() {}
+
+  virtual void setup();
+
+  virtual void node_execute(
+    double *lhs,
+    double *rhs,
+    stk::mesh::Entity node);
+  
+  VectorFieldType *coordinates_;
+  ScalarFieldType *dualNodalVolume_;
 };
 
 } // namespace nalu
