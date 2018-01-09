@@ -166,7 +166,7 @@ TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::execute(
     const DoubleType lSST = sqrtTke/betaStar_/sdr;
     // prevent divide by zero (possible at resolved tke bcs = 0.0)
     const DoubleType lDES = stk::math::max(1.0e-16, stk::math::min(lSST, cDES*maxLengthScale));
-    
+
     // tke factor
     const DoubleType tkeFac = rho * sqrtTke/ lDES;
 
