@@ -93,6 +93,7 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
   SharedMemView<DoubleType*>& rhs,
   ScratchViews<DoubleType>& scratchViews)
 {
+  DoubleType w_dudx[AlgTraits::nDim_][AlgTraits::nDim_];
 
   SharedMemView<DoubleType*>& v_tkeNp1 =
     scratchViews.get_scratch_view_1D(*tkeNp1_);
@@ -121,7 +122,10 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
     DoubleType tke = 0.0;
     DoubleType sdr = 0.0;
     DoubleType tvisc = 0.0;
-    DoubleType Pk = 0.0;
+    for (int i = 0; i < AlgTraits::nDim_; ++i)
+      for (int j = 0; j < AlgTraits::nDim_; ++j)
+        w_dudx[i][j] = 0.0;
+
     for (int ic = 0; ic < AlgTraits::nodesPerElement_; ++ic) {
 
       const DoubleType r = v_shape_function_(ip, ic);
@@ -132,12 +136,17 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
       tvisc += r * v_tvisc(ic);
 
       for (int i = 0; i < AlgTraits::nDim_; ++i) {
-        const DoubleType dni = v_dndx(ip, ic, i);
         const DoubleType ui = v_velocityNp1(ic, i);
         for (int j = 0; j < AlgTraits::nDim_; ++j) {
-          const DoubleType dnj = v_dndx(ip, ic, j);
-          Pk += dnj * ui * (dnj * ui + dni * v_velocityNp1(ic, j));
+          w_dudx[i][j] += v_dndx(ip, ic, j) * ui;
         }
+      }
+    }
+
+    DoubleType Pk = 0.0;
+    for (int i = 0; i < AlgTraits::nDim_; ++i) {
+      for (int j = 0; j < AlgTraits::nDim_; ++j) {
+        Pk += w_dudx[i][j] * (w_dudx[i][j] + w_dudx[j][i]);
       }
     }
     Pk *= tvisc;

@@ -102,6 +102,7 @@ TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::execute(
   SharedMemView<DoubleType*>& rhs,
   ScratchViews<DoubleType>& scratchViews)
 {
+  DoubleType w_dudx[AlgTraits::nDim_][AlgTraits::nDim_];
 
   SharedMemView<DoubleType*>& v_tkeNp1 =
     scratchViews.get_scratch_view_1D(*tkeNp1_);
@@ -136,7 +137,10 @@ TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::execute(
     DoubleType tvisc = 0.0;
     DoubleType maxLengthScale = 0.0;
     DoubleType fOneBlend = 0.0;
-    DoubleType Pk = 0.0;
+    for (int i = 0; i < AlgTraits::nDim_; ++i)
+      for (int j = 0; j < AlgTraits::nDim_; ++j)
+        w_dudx[i][j] = 0.0;
+
     for (int ic = 0; ic < AlgTraits::nodesPerElement_; ++ic) {
 
       const DoubleType r = v_shape_function_(ip, ic);
@@ -149,26 +153,32 @@ TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::execute(
       fOneBlend += r * v_fOneBlend(ic);
 
       for (int i = 0; i < AlgTraits::nDim_; ++i) {
-        const DoubleType dni = v_dndx(ip, ic, i);
         const DoubleType ui = v_velocityNp1(ic, i);
         for (int j = 0; j < AlgTraits::nDim_; ++j) {
-          const DoubleType dnj = v_dndx(ip, ic, j);
-          Pk += dnj * ui * (dnj * ui + dni * v_velocityNp1(ic, j));
+          w_dudx[i][j] += v_dndx(ip, ic, j) * ui;
         }
+      }
+    }
+
+    DoubleType Pk = 0.0;
+    for (int i = 0; i < AlgTraits::nDim_; ++i) {
+      for (int j = 0; j < AlgTraits::nDim_; ++j) {
+        Pk += w_dudx[i][j] * (w_dudx[i][j] + w_dudx[j][i]);
       }
     }
     Pk *= tvisc;
 
     // blend cDES
-    const DoubleType cDES = fOneBlend*cDESkw_ + (1.0-fOneBlend)*cDESke_;
+    const DoubleType cDES = fOneBlend * cDESkw_ + (1.0 - fOneBlend) * cDESke_;
 
     const DoubleType sqrtTke = stk::math::sqrt(tke);
-    const DoubleType lSST = sqrtTke/betaStar_/sdr;
+    const DoubleType lSST = sqrtTke / betaStar_ / sdr;
     // prevent divide by zero (possible at resolved tke bcs = 0.0)
-    const DoubleType lDES = stk::math::max(1.0e-16, stk::math::min(lSST, cDES*maxLengthScale));
+    const DoubleType lDES =
+      stk::math::max(1.0e-16, stk::math::min(lSST, cDES * maxLengthScale));
 
     // tke factor
-    const DoubleType tkeFac = rho * sqrtTke/ lDES;
+    const DoubleType tkeFac = rho * sqrtTke / lDES;
 
     // dissipation and production (limited)
     DoubleType Dk = tkeFac * tke;
