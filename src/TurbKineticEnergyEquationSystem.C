@@ -64,8 +64,8 @@
 #include <kernel/ScalarUpwAdvDiffElemKernel.h>
 #include <kernel/TurbKineticEnergyKsgsSrcElemKernel.h>
 #include <kernel/TurbKineticEnergyKsgsDesignOrderSrcElemKernel.h>
-#include <TurbKineticEnergySSTSrcElemKernel.h>
-#include <TurbKineticEnergySSTDESSrcElemKernel.h>
+#include <kernel/TurbKineticEnergySSTSrcElemKernel.h>
+#include <kernel/TurbKineticEnergySSTDESSrcElemKernel.h>
 
 // nso
 #include <nso/ScalarNSOElemKernel.h>

@@ -5,7 +5,7 @@
 /*  directory structure                                                   */
 /*------------------------------------------------------------------------*/
 
-#include "TurbKineticEnergySSTSrcElemKernel.h"
+#include "kernel/TurbKineticEnergySSTDESSrcElemKernel.h"
 #include "FieldTypeDef.h"
 #include "SolutionOptions.h"
 
@@ -22,15 +22,18 @@ namespace sierra {
 namespace nalu {
 
 template <typename AlgTraits>
-TurbKineticEnergySSTSrcElemKernel<AlgTraits>::TurbKineticEnergySSTSrcElemKernel(
-  const stk::mesh::BulkData& bulkData,
-  const SolutionOptions& solnOpts,
-  ElemDataRequests& dataPreReqs,
-  const bool lumpedMass)
+TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::
+  TurbKineticEnergySSTDESSrcElemKernel(
+    const stk::mesh::BulkData& bulkData,
+    const SolutionOptions& solnOpts,
+    ElemDataRequests& dataPreReqs,
+    const bool lumpedMass)
   : Kernel(),
     lumpedMass_(lumpedMass),
     betaStar_(solnOpts.get_turb_model_constant(TM_betaStar)),
     tkeProdLimitRatio_(solnOpts.get_turb_model_constant(TM_tkeProdLimitRatio)),
+    cDESke_(solnOpts.get_turb_model_constant(TM_cDESke)),
+    cDESkw_(solnOpts.get_turb_model_constant(TM_cDESkw)),
     ipNodeMap_(sierra::nalu::MasterElementRepo::get_volume_master_element(
                  AlgTraits::topo_)
                  ->ipNodeMap())
@@ -50,6 +53,10 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::TurbKineticEnergySSTSrcElemKernel(
   velocityNp1_ = &(velocity->field_of_state(stk::mesh::StateNP1));
   tvisc_ = metaData.get_field<ScalarFieldType>(
     stk::topology::NODE_RANK, "turbulent_viscosity");
+  maxLengthScale_ = metaData.get_field<ScalarFieldType>(
+    stk::topology::NODE_RANK, "sst_max_length_scale");
+  fOneBlend_ = metaData.get_field<ScalarFieldType>(
+    stk::topology::NODE_RANK, "sst_f_one_blending");
   coordinates_ = metaData.get_field<VectorFieldType>(
     stk::topology::NODE_RANK, solnOpts.get_coordinates_name());
 
@@ -76,19 +83,21 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::TurbKineticEnergySSTSrcElemKernel(
   dataPreReqs.add_gathered_nodal_field(*densityNp1_, 1);
   dataPreReqs.add_gathered_nodal_field(*velocityNp1_, AlgTraits::nDim_);
   dataPreReqs.add_gathered_nodal_field(*tvisc_, 1);
+  dataPreReqs.add_gathered_nodal_field(*maxLengthScale_, 1);
+  dataPreReqs.add_gathered_nodal_field(*fOneBlend_, 1);
   dataPreReqs.add_master_element_call(SCV_VOLUME, CURRENT_COORDINATES);
   dataPreReqs.add_master_element_call(SCV_GRAD_OP, CURRENT_COORDINATES);
 }
 
 template <typename AlgTraits>
-TurbKineticEnergySSTSrcElemKernel<
-  AlgTraits>::~TurbKineticEnergySSTSrcElemKernel()
+TurbKineticEnergySSTDESSrcElemKernel<
+  AlgTraits>::~TurbKineticEnergySSTDESSrcElemKernel()
 {
 }
 
 template <typename AlgTraits>
 void
-TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
+TurbKineticEnergySSTDESSrcElemKernel<AlgTraits>::execute(
   SharedMemView<DoubleType**>& lhs,
   SharedMemView<DoubleType*>& rhs,
   ScratchViews<DoubleType>& scratchViews)
@@ -105,6 +114,10 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
     scratchViews.get_scratch_view_2D(*velocityNp1_);
   SharedMemView<DoubleType*>& v_tvisc =
     scratchViews.get_scratch_view_1D(*tvisc_);
+  SharedMemView<DoubleType*>& v_maxLengthScale =
+    scratchViews.get_scratch_view_1D(*maxLengthScale_);
+  SharedMemView<DoubleType*>& v_fOneBlend =
+    scratchViews.get_scratch_view_1D(*fOneBlend_);
   SharedMemView<DoubleType***>& v_dndx =
     scratchViews.get_me_views(CURRENT_COORDINATES).dndx_scv;
   SharedMemView<DoubleType*>& v_scv_volume =
@@ -122,6 +135,8 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
     DoubleType tke = 0.0;
     DoubleType sdr = 0.0;
     DoubleType tvisc = 0.0;
+    DoubleType maxLengthScale = 0.0;
+    DoubleType fOneBlend = 0.0;
     for (int i = 0; i < AlgTraits::nDim_; ++i)
       for (int j = 0; j < AlgTraits::nDim_; ++j)
         w_dudx[i][j] = 0.0;
@@ -134,6 +149,8 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
       tke += r * v_tkeNp1(ic);
       sdr += r * v_sdrNp1(ic);
       tvisc += r * v_tvisc(ic);
+      maxLengthScale += r * v_maxLengthScale(ic);
+      fOneBlend += r * v_fOneBlend(ic);
 
       for (int i = 0; i < AlgTraits::nDim_; ++i) {
         const DoubleType ui = v_velocityNp1(ic, i);
@@ -151,8 +168,17 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
     }
     Pk *= tvisc;
 
+    // blend cDES
+    const DoubleType cDES = fOneBlend * cDESkw_ + (1.0 - fOneBlend) * cDESke_;
+
+    const DoubleType sqrtTke = stk::math::sqrt(tke);
+    const DoubleType lSST = sqrtTke / betaStar_ / sdr;
+    // prevent divide by zero (possible at resolved tke bcs = 0.0)
+    const DoubleType lDES =
+      stk::math::max(1.0e-16, stk::math::min(lSST, cDES * maxLengthScale));
+
     // tke factor
-    const DoubleType tkeFac = betaStar_ * rho * sdr;
+    const DoubleType tkeFac = rho * sqrtTke / lDES;
 
     // dissipation and production (limited)
     DoubleType Dk = tkeFac * tke;
@@ -166,7 +192,7 @@ TurbKineticEnergySSTSrcElemKernel<AlgTraits>::execute(
   }
 }
 
-INSTANTIATE_KERNEL(TurbKineticEnergySSTSrcElemKernel);
+INSTANTIATE_KERNEL(TurbKineticEnergySSTDESSrcElemKernel);
 
 } // namespace nalu
 } // namespace sierra

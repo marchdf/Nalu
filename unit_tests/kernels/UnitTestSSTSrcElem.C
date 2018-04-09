@@ -9,9 +9,9 @@
 #include "UnitTestUtils.h"
 #include "UnitTestHelperObjects.h"
 
-#include "TurbKineticEnergySSTSrcElemKernel.h"
-#include "TurbKineticEnergySSTDESSrcElemKernel.h"
-#include "SpecificDissipationRateSSTSrcElemKernel.h"
+#include "kernel/TurbKineticEnergySSTSrcElemKernel.h"
+#include "kernel/TurbKineticEnergySSTDESSrcElemKernel.h"
+#include "kernel/SpecificDissipationRateSSTSrcElemKernel.h"
 
 namespace {
 namespace hex8_golds {
@@ -187,7 +187,7 @@ TEST_F(SSTKernelHex8Mesh, turbkineticenergysstsrcelem)
   solnOpts_.externalMeshDeformation_ = false;
   solnOpts_.initialize_turbulence_constants();
 
-  unit_test_utils::HelperObjectsNewME helperObjs(
+  unit_test_utils::HelperObjects helperObjs(
     bulk_, stk::topology::HEX_8, 1, partVec_[0]);
 
   // Initialize the kernel
@@ -224,7 +224,7 @@ TEST_F(SSTKernelHex8Mesh, turbkineticenergysstdessrcelem)
   solnOpts_.externalMeshDeformation_ = false;
   solnOpts_.initialize_turbulence_constants();
 
-  unit_test_utils::HelperObjectsNewME helperObjs(
+  unit_test_utils::HelperObjects helperObjs(
     bulk_, stk::topology::HEX_8, 1, partVec_[0]);
 
   // Initialize the kernel
@@ -261,7 +261,7 @@ TEST_F(SSTKernelHex8Mesh, specificdissipationratesstsrcelem)
   solnOpts_.externalMeshDeformation_ = false;
   solnOpts_.initialize_turbulence_constants();
 
-  unit_test_utils::HelperObjectsNewME helperObjs(
+  unit_test_utils::HelperObjects helperObjs(
     bulk_, stk::topology::HEX_8, 1, partVec_[0]);
 
   // Initialize the kernel

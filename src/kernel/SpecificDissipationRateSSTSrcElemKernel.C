@@ -5,7 +5,7 @@
 /*  directory structure                                                   */
 /*------------------------------------------------------------------------*/
 
-#include "SpecificDissipationRateSSTSrcElemKernel.h"
+#include "kernel/SpecificDissipationRateSSTSrcElemKernel.h"
 #include "FieldTypeDef.h"
 #include "SolutionOptions.h"
 
